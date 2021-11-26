@@ -1,0 +1,84 @@
+# an easy makefile to generate Logisim rom image
+# prerequest: riscv cross-compile tool
+
+##
+APPS = digits echo hello square shell wait_trap matrix video
+##
+CROSS_COMPILE = riscv-none-embed-
+AS = $(CROSS_COMPILE)gcc
+CC = $(CROSS_COMPILE)gcc
+LD = $(CROSS_COMPILE)ld
+OBJDUMP = $(CROSS_COMPILE)objdump
+OBJCOPY = $(CROSS_COMPILE)objcopy
+##
+TOP = $(CURDIR)
+INC_DIR = $(TOP)/inc
+INCLUDES = $(addprefix -I, $(INC_DIR))
+
+SRC_DIR = $(TOP)/src
+LIB_DIR = $(SRC_DIR)/lib
+SYS_INC_DIR = $(SRC_DIR)/inc
+
+LDSCRIPT = $(TOP)/memlayout.ld
+LD_EXTRA_CODE = $(SRC_DIR)/lib/
+DST_DIR = $(TOP)/build
+CPLUS_INCLUDE_PATH=$(SYS_INC_DIR)
+##
+CFLAGS_COMMON = -O3 -MMD  \
+	-nostdinc -fdata-sections -fno-builtin -fno-stack-protector -fcf-protection=none
+CFLAGS = $(CFLAGS_COMMON) -std=c99 -march=rv32im -I$(INC_DIR)
+ASFLAGS = -MMD $(INCLUDES) -march=rv32im
+LDFLAGS =  -T $(LDSCRIPT)  $(LIB_DIR)/entry.o $(LIB_DIR)/trap.o $(LIB_DIR)/stdio.o $(LIB_DIR)/string.o
+##
+
+
+# source file list
+OBJS = $(addprefix $(DST_DIR)/, $(addsuffix .o, $(basename $(APPS))))
+all:
+	@cd $(SRC_DIR)/lib && $(MAKE) \
+	-f $(TOP)/Makefile lib CURDIR=$(TOP)
+	@cd $(SRC_DIR) && $(MAKE) \
+	-f $(TOP)/Makefile \
+	$(APPS) \
+	CURDIR=$(TOP)
+	@echo [MAKE] Make Completed.
+clean:
+	rm -f $(DST_DIR)/*
+
+lib:
+	@echo [$@]
+	@$(CC) $(CFLAGS) -c -o entry.o entry.S
+	@$(CC) $(CFLAGS) -c -o stdio.o stdio.c
+	@$(CC) $(CFLAGS) -c -o trap.o trap.c
+	@$(CC) $(CFLAGS) -c -o string.o string.c
+	@rm -f $(SRC_DIR)/lib/*.d
+
+%: %.c
+	@echo [$@]
+	@echo CC:\ \ \ \ \ \ \ \ [$<] -\> [$@.S]
+	@$(CC) $(CFLAGS) -S -o $(DST_DIR)/$@.S $<
+	@echo AS:\ \ \ \ \ \ \ \ [$@.S] -\> [$@.o]
+	@$(CC) $(CFLAGS) -c -o $(DST_DIR)/$@.o $<
+	@rm -f $(DST_DIR)/$@.d
+	@$(LD) $(LDFLAGS) $(DST_DIR)/$@.o -o $(DST_DIR)/$@
+	@echo OBJDUMP:\ \ \ [$@] -\> [$@.txt]
+	@$(OBJDUMP) -D $(DST_DIR)/$@ > $(DST_DIR)/$@.txt
+	@echo GEN_IMAGE: [$@] -\> [$@.logi.txt]
+	@$(OBJCOPY) -O binary -S $(DST_DIR)/$@ $(DST_DIR)/$@.bin
+	@# @echo -e "v2.0 raw" > $(DST_DIR)/$@.logi.txt
+	@# @hexdump -n 4096 -v -e '/4 "%08x " ' $(DST_DIR)/$@.bin >> $(DST_DIR)/$@.logi.txt
+	@xxd -e $(DST_DIR)/$@.bin  | awk -F ' ' "{print \$$2,\$$3,\$$4,\$$5}" | sed 's/[^0-9a-f ]//g' > $(DST_DIR)/$@.logi.txt
+
+%: %.S
+	@echo [$@]
+	@echo AS:\ \ \ \ \ \ \ \ [$@.S] -\> [$@.o]
+	@$(CC) $(CFLAGS) -c -o $(DST_DIR)/$@.o $<
+	@rm -f $(DST_DIR)/$@.d
+	@$(LD) $(LDFLAGS) $(DST_DIR)/$@.o -o $(DST_DIR)/$@
+	@echo OBJDUMP:\ \ \ [$@] -\> [$@.txt]
+	@$(OBJDUMP) -D $(DST_DIR)/$@ > $(DST_DIR)/$@.txt
+	@echo GEN_IMAGE: [$@] -\> [$@.logi.txt]
+	@$(OBJCOPY) -O binary -j .text $(DST_DIR)/$@ $(DST_DIR)/$@.bin
+	@# @echo -e "v2.0 raw" > $(DST_DIR)/$@.logi.txt
+	@# @hexdump -v -e '/4 "%08x " ' $(DST_DIR)/$@.bin >> $(DST_DIR)/$@.logi.txt
+	@xxd -e $(DST_DIR)/$@.bin  | awk -F ' ' "{print \$$2,\$$3,\$$4,\$$5}" | sed 's/[^0-9a-f ]//g' > $(DST_DIR)/$@.logi2.txt
